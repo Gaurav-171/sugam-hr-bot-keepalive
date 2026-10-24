@@ -1,0 +1,39 @@
+# Render's free plan puts a web service to sleep after 15 minutes without visits.
+# This visits the bot's health page every 5 minutes so it stays awake.
+name: Keep bot awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+    - cron: "17 3 1 * *"   # monthly, see stay-enabled below
+  workflow_dispatch:       # "Run workflow" button in the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the bot
+        env:
+          URL: ${{ secrets.RENDER_URL }}
+        run: |
+          if [ -z "$URL" ]; then echo "RENDER_URL secret not set yet - skipping"; exit 0; fi
+          curl -fsS --retry 3 --retry-delay 20 --max-time 90 -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" "$URL"
+
+  # GitHub switches off scheduled workflows in public repos after 60 days with no commits.
+  # Once a month this makes a tiny commit so that never happens.
+  stay-enabled:
+    if: github.event.schedule == '17 3 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%Y-%m-%dT%H:%MZ > last-keepalive.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last-keepalive.txt
+          git commit -m "Monthly keep-alive"
+          git push
